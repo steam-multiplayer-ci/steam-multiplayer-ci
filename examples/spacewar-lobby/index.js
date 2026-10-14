@@ -87,8 +87,9 @@ async function main() {
   step('relay', { ready: !!relay, status: rs.availabilityName, pops: steam.networkingUtils.getPOPCount() });
 
   let lobbyId;
+  let listen = null;
   if (ROLE === 0) {
-    steam.networkingSockets.createListenSocketP2P(0);
+    listen = steam.networkingSockets.createListenSocketP2P(0);
     const res = await steam.matchmaking.createLobby(2 /* public */, 2);
     if (!res || !res.success) done(false, 'createLobby failed: ' + (res && res.error));
     lobbyId = String(res.lobbyId);
@@ -125,6 +126,7 @@ async function main() {
 
   await sleep(3000);   // let the other side read ours before the connection closes
   try { steam.networkingSockets.closeConnection(conn, 0, 'done', true); } catch (e) {}
+  if (listen != null) { try { steam.networkingSockets.closeListenSocket(listen); } catch (e) {} }
   try { steam.matchmaking.leaveLobby(lobbyId); } catch (e) {}
   clearInterval(pump);
   done(true);

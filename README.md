@@ -65,7 +65,8 @@ Outputs: `exit-code`, `login-seconds`.
 - **Use dedicated test accounts only.** Never use your own account. Give each account only the
   licenses the test needs.
 - **Logs of public repositories are public.** Do not print secrets. Uploaded artifacts are kept for
-  one day.
+  one day. Note that `steam_api64.dll` itself writes the signed-in account's Steam ID to standard error;
+  if that matters for your accounts, keep standard error out of the uploaded files or encrypt them.
 - The action signs the account out when it finishes, so the login it created is revoked.
 - Windows only. Your program needs the Steamworks redistributable (`steam_api64.dll`) from your own
   Steamworks SDK; it is not included here because Valve's terms do not allow redistributing it.

@@ -1,13 +1,16 @@
 name: selftest
 
 # Two Windows runners sign in two test accounts, meet in a Spacewar (480) lobby and exchange a
-# message over Steam networking. Runs only for pushes to main and manual starts: workflows from
-# forks get no secrets, and pull_request_target is deliberately not used.
+# message over Steam networking. Runs for pushes to main, manual starts and once a day (to notice
+# when Steam or the runner image changes). Workflows from forks get no secrets, and
+# pull_request_target is deliberately not used.
 on:
   push:
     branches: [main]
     paths-ignore: ['**.md', '.github/ISSUE_TEMPLATE/**', 'LICENSE']
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
 
 permissions:
   contents: read
