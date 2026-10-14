@@ -31,10 +31,10 @@ function Invoke-Cdp([string]$wsUrl, [string]$expr, [int]$timeoutSec = 20) {
   $ws = [System.Net.WebSockets.ClientWebSocket]::new()
   $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($timeoutSec))
   try {
-    $ws.ConnectAsync([Uri]$wsUrl, $cts.Token).GetAwaiter().GetResult()
+    [void]$ws.ConnectAsync([Uri]$wsUrl, $cts.Token).GetAwaiter().GetResult()
     $msg = @{ id = 1; method = 'Runtime.evaluate'; params = @{ expression = $expr; awaitPromise = $true; returnByValue = $true } } | ConvertTo-Json -Depth 6 -Compress
     $bytes = [Text.Encoding]::UTF8.GetBytes($msg)
-    $ws.SendAsync([ArraySegment[byte]]::new($bytes), [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).GetAwaiter().GetResult()
+    [void]$ws.SendAsync([ArraySegment[byte]]::new($bytes), [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).GetAwaiter().GetResult()
     $buf = New-Object byte[] 262144
     $sb = [Text.StringBuilder]::new()
     while ($true) {
@@ -151,6 +151,9 @@ try {
   SetOutput 'login-seconds' ([string]$timing['login_s'])
   Log ('signed in after ' + $timing['login_s'] + ' s (from starting the client)')
   $user = $null; $pass = $null
+  # The client keeps setting itself up for a few seconds after sign-in; SteamAPI_Init fails if a program attaches too early.
+  $settle = [int]$env:SMCI_SETTLE_S
+  if ($settle -gt 0) { Start-Sleep -Seconds $settle; Log ('waited ' + $settle + ' s after sign-in') }
 
   # ---------- 3. run the command ----------
   $wd = (Resolve-Path -Path $env:SMCI_WORKDIR).Path

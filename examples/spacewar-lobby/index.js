@@ -13,8 +13,12 @@ const ROLE = Number(process.env.SMCI_ROLE || 0);
 const LIMIT_MS = Number(process.env.EXAMPLE_TIMEOUT_MS || 8 * 60 * 1000);
 const t0 = Date.now();
 const result = { role: ROLE, run: RUN, pass: false, steps: {} };
+
 const short = (id) => crypto.createHash('sha256').update(String(id)).digest('hex').slice(0, 8);
-const step = (k, v) => { result.steps[k] = v; console.log('[example] ' + k + ' = ' + JSON.stringify(v) + ' at ' + (Date.now() - t0) + ' ms'); };
+const step = (k, v) => {
+  result.steps[k] = v;
+  console.log('[example] ' + k + ' = ' + JSON.stringify(v) + ' at ' + (Date.now() - t0) + ' ms');
+};
 const done = (pass, why) => {
   result.pass = pass;
   if (why) result.reason = why;
@@ -26,40 +30,54 @@ const done = (pass, why) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, ms, every = 100) => {
   const end = Date.now() + ms;
-  while (Date.now() < end) { const v = await fn(); if (v) return v; await sleep(every); }
+  while (Date.now() < end) {
+    const v = await fn();
+    if (v) return v;
+    await sleep(every);
+  }
   return null;
 };
 
 fs.writeFileSync('steam_appid.txt', '480');
 const steam = SteamworksSDK.getInstance();
-if (!steam.init({ appId: 480 })) done(false, 'Steam init failed');
-const me = (steam.getStatus() || {}).steamId;
-step('init', { me: short(me) });
-
-const pump = setInterval(() => {
-  try { steam.runCallbacks(); } catch (e) {}
-  try { steam.networkingSockets.runCallbacks(); } catch (e) {}
-}, 33);
 setTimeout(() => done(false, 'time limit'), LIMIT_MS).unref();
 
-let conn = null;
-let connected = false;
-const inbox = [];
-steam.networkingSockets.onConnectionRequest((req) => {
-  const r = steam.networkingSockets.acceptConnection(req.connection);
-  step('accept', { result: r });
-  conn = req.connection;
-});
-steam.networkingSockets.onConnectionStateChange((c) => {
-  if (c.newState === 3) { connected = true; conn = c.connection; }
-  if (c.newState === 4 || c.newState === 5) step('closed', { state: c.newState });
-});
-const poll = () => {
-  if (conn == null) return;
-  for (const m of steam.networkingSockets.receiveMessages(conn, 16) || []) inbox.push(String(m.data));
-};
+async function initSteam() {
+  // Right after sign-in the client may not accept programs yet: retry for up to a minute.
+  for (let tries = 1; tries <= 20; tries++) {
+    if (steam.init({ appId: 480 })) {
+      step('init', { me: short((steam.getStatus() || {}).steamId), tries });
+      return;
+    }
+    await sleep(3000);
+  }
+  done(false, 'Steam init failed 20 times');
+}
 
-(async () => {
+async function main() {
+  await initSteam();
+
+  const pump = setInterval(() => {
+    try { steam.runCallbacks(); } catch (e) {}
+    try { steam.networkingSockets.runCallbacks(); } catch (e) {}
+  }, 33);
+
+  let conn = null;
+  let connected = false;
+  const inbox = [];
+  steam.networkingSockets.onConnectionRequest((req) => {
+    step('accept', { result: steam.networkingSockets.acceptConnection(req.connection) });
+    conn = req.connection;
+  });
+  steam.networkingSockets.onConnectionStateChange((c) => {
+    if (c.newState === 3) { connected = true; conn = c.connection; }   // 3 = connected
+    if (c.newState === 4 || c.newState === 5) step('closed', { state: c.newState });
+  });
+  const poll = () => {
+    if (conn == null) return;
+    for (const m of steam.networkingSockets.receiveMessages(conn, 16) || []) inbox.push(String(m.data));
+  };
+
   steam.networkingUtils.initRelayNetworkAccess();
   const relay = await until(() => {
     const s = steam.networkingUtils.getRelayNetworkStatus();
@@ -98,7 +116,10 @@ const poll = () => {
   step('connected', { viaRelay: !!info.popIdRelay });
 
   steam.networkingSockets.sendReliable(conn, 'hello from ' + ROLE + ' ' + RUN);
-  const got = await until(() => { poll(); return inbox.find((s) => s.startsWith('hello from ') && s.endsWith(' ' + RUN)); }, 60000, 50);
+  const got = await until(() => {
+    poll();
+    return inbox.find((s) => s.startsWith('hello from ') && s.endsWith(' ' + RUN));
+  }, 60000, 50);
   if (!got) done(false, 'no message from the other side');
   step('message', { received: true });
 
@@ -107,4 +128,6 @@ const poll = () => {
   try { steam.matchmaking.leaveLobby(lobbyId); } catch (e) {}
   clearInterval(pump);
   done(true);
-})().catch((e) => done(false, 'error: ' + e.message));
+}
+
+main().catch((e) => done(false, 'error: ' + e.message));
