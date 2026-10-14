@@ -1,0 +1,11 @@
+{
+  "name": "smci-spacewar-lobby",
+  "private": true,
+  "description": "Self-test for steam-multiplayer-ci: two players meet in a Spacewar (480) lobby and exchange a message over Steam networking.",
+  "license": "MIT",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "steamworks-ffi-node": "0.10.4"
+  }
+}

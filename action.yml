@@ -1,0 +1,71 @@
+name: Steam Multiplayer CI
+description: Sign a dedicated test account into the Steam client on a GitHub-hosted Windows runner, run your game or test program, and collect its logs.
+author: steam-multiplayer-ci
+branding:
+  icon: users
+  color: blue
+
+inputs:
+  steam-username:
+    description: Dedicated test account name (Steam Guard off). Pass it from a secret.
+    required: true
+  steam-password:
+    description: Password of the test account. Pass it from a secret.
+    required: true
+  command:
+    description: PowerShell command line to run once Steam has signed in.
+    required: true
+  working-directory:
+    description: Directory the command runs in.
+    default: .
+  role:
+    description: This job's player number, starting at 0.
+    default: '0'
+  roles:
+    description: Number of players taking part.
+    default: '1'
+  run-id:
+    description: Marker shared by all players of one test. Defaults to the workflow run ID and attempt.
+    default: ''
+  timeout-minutes:
+    description: Time limit for the command, counted after Steam has signed in.
+    default: '15'
+  log-paths:
+    description: Newline-separated files or wildcards, relative to working-directory, to upload with the logs.
+    default: ''
+  artifact-name:
+    description: Name of the uploaded artifact. Defaults to smci-logs-role-<role>.
+    default: ''
+
+outputs:
+  exit-code:
+    description: Exit code of the command (124 when it timed out, 125 when Steam could not sign in).
+    value: ${{ steps.run.outputs.exit-code }}
+  login-seconds:
+    description: Seconds from starting the Steam client to a signed-in account.
+    value: ${{ steps.run.outputs.login-seconds }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: pwsh
+      env:
+        SMCI_STEAM_USER: ${{ inputs.steam-username }}
+        SMCI_STEAM_PASS: ${{ inputs.steam-password }}
+        SMCI_COMMAND: ${{ inputs.command }}
+        SMCI_WORKDIR: ${{ inputs.working-directory }}
+        SMCI_ROLE: ${{ inputs.role }}
+        SMCI_ROLES: ${{ inputs.roles }}
+        SMCI_RUN: ${{ inputs.run-id != '' && inputs.run-id || format('{0}-{1}', github.run_id, github.run_attempt) }}
+        SMCI_TIMEOUT_MIN: ${{ inputs.timeout-minutes }}
+        SMCI_LOG_PATHS: ${{ inputs.log-paths }}
+      run: '& "$env:GITHUB_ACTION_PATH\scripts\run.ps1"'
+
+    - if: always() && steps.run.outputs.out-dir != ''
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name != '' && inputs.artifact-name || format('smci-logs-role-{0}', inputs.role) }}
+        path: ${{ steps.run.outputs.out-dir }}
+        retention-days: 1
+        if-no-files-found: warn

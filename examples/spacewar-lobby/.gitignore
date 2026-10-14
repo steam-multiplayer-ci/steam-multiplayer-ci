@@ -1,0 +1,4 @@
+node_modules/
+steamworks_sdk/
+steam_appid.txt
+result.json

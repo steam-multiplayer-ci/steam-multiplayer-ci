@@ -1,0 +1,98 @@
+name: selftest
+
+# Two Windows runners sign in two test accounts, meet in a Spacewar (480) lobby and exchange a
+# message over Steam networking. Runs only for pushes to main and manual starts: workflows from
+# forks get no secrets, and pull_request_target is deliberately not used.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', '.github/ISSUE_TEMPLATE/**', 'LICENSE']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - id: check
+        env:
+          U1: ${{ secrets.STEAM_USER_1 }}
+          U2: ${{ secrets.STEAM_USER_2 }}
+          KEY: ${{ secrets.SDK_DEPLOY_KEY }}
+        run: |
+          if [ -n "$U1" ] && [ -n "$U2" ] && [ -n "$KEY" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; echo "Self-test secrets are not set in this repository; skipping."; fi
+
+  play:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true'
+    name: role ${{ matrix.role }}
+    runs-on: windows-2025
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        role: [0, 1]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Valve's terms do not allow redistributing steam_api64.dll, so the self-test reads it from a
+      # private repository with a read-only deploy key. In your own project, use your own SDK copy.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: steam-multiplayer-ci/sdk-redist
+          ssh-key: ${{ secrets.SDK_DEPLOY_KEY }}
+          path: examples/spacewar-lobby/steamworks_sdk/redistributable_bin
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Install example
+        working-directory: examples/spacewar-lobby
+        run: npm ci --no-audit --no-fund
+
+      - name: Play under Steam
+        uses: ./
+        with:
+          steam-username: ${{ matrix.role == 0 && secrets.STEAM_USER_1 || secrets.STEAM_USER_2 }}
+          steam-password: ${{ matrix.role == 0 && secrets.STEAM_PASS_1 || secrets.STEAM_PASS_2 }}
+          command: node index.js
+          working-directory: examples/spacewar-lobby
+          role: ${{ matrix.role }}
+          roles: '2'
+          timeout-minutes: '10'
+          log-paths: result.json
+
+  verdict:
+    needs: [gate, play]
+    if: always() && needs.gate.outputs.ok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: smci-logs-role-*
+          path: logs
+      - name: Both players passed
+        shell: bash
+        run: |
+          set -u
+          ok=0
+          for r in 0 1; do
+            f="logs/smci-logs-role-$r/result.json"
+            if [ -f "$f" ] && grep -q '"pass": true' "$f"; then echo "role $r: pass"; ok=$((ok+1)); else echo "role $r: fail"; fi
+          done
+          [ "$ok" -eq 2 ]

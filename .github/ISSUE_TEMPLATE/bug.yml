@@ -1,0 +1,17 @@
+name: Bug report
+description: Something in the action does not work
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: Which step failed, and the relevant lines from the job log (remove anything secret).
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Runner image
+      placeholder: windows-2025
+  - type: input
+    attributes:
+      label: Action version
+      placeholder: v0.1.0
